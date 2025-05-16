@@ -20,7 +20,7 @@ async def analyze_ootd(image: UploadFile = File(...)):
             result = run_classification(clothing_img)
 
             data = {
-                "cloth": clothing_img,
+                "imageSrc": clothing_img,
                 "type": result["type"],
                 "detail": result["detail"],
                 "print": result["print"],
