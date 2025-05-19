@@ -5,8 +5,6 @@ from PIL import Image
 import io
 import sys
 import os
-import base64
-
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-segmentation"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-classification"))
 
@@ -14,10 +12,6 @@ from run_segmentation import run_segmentation
 from run_classification import run_classification
 app = FastAPI()
 
-def pil_to_base64(image):
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
 
 @app.post("/AI")
 async def analyze_ootd(image: UploadFile = File(...)):
@@ -49,14 +43,14 @@ async def analyze_ootd(image: UploadFile = File(...)):
                 "texture": result["texture"],
                 "style": result["style"]
             }
-            
+
             # multipart용 이미지 파일 구성
             clothing_img_bytes = io.BytesIO()
             clothing_img.save(clothing_img_bytes, format="PNG")
             clothing_img_bytes.seek(0)
 
             files = {
-                "image_file": ("image.png", clothing_img_bytes, "image/png")
+                "file": ("image.png", clothing_img_bytes, "image/png")
             }
 
             print(f"Classification result {idx+1}: {data}")
@@ -64,7 +58,7 @@ async def analyze_ootd(image: UploadFile = File(...)):
             results.append(data)
             
             # 백엔드 전송
-            url = "http://localhost:8000/result"  # 벡엔드 URL로 변경
+            url = "http://localhost:8000/cloth"  # 벡엔드 URL로 변경
             response = requests.post(url, files=files, data=data)
         return JSONResponse(content={"message": "분석 완료"}, status_code=200)
 
