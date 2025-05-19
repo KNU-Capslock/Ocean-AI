@@ -48,18 +48,15 @@ def run_segmentation(image: Image.Image):
         bbox = alpha_mask.getbbox()
         if bbox:
             image_rgba = image_rgba.crop(bbox)
-
-        # 저장 및 반환
+        """
+        # 저장 및 반환 -> 테스트 이후 주석처리 
         filename = f"seg_cropped_cls{cls}.png"
         image_rgba.save(filename)
         print(f"[✓] Saved cropped: {filename}")
-
+        """
         buffer = io.BytesIO()
         image_rgba.save(buffer, format="PNG")
         buffer.seek(0)
         segmented_images.append(buffer)
 
     return segmented_images
-from PIL import Image
-test_img = Image.open("test.png").convert("RGB")  # 테스트 이미지 경로
-run_segmentation(test_img)
