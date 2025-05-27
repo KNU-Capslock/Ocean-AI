@@ -20,6 +20,9 @@ COPY . .
 ARG HF_TOKEN
 ENV HUGGINGFACE_HUB_TOKEN=$HF_TOKEN
 
+ARG BACKEND_URL
+ENV BACKEND_URL=$BACKEND_URL
+
 # Hugging Face 모델 5개 다운로드
 RUN python -c "\
 from huggingface_hub import hf_hub_download; \

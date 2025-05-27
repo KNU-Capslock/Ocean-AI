@@ -58,7 +58,8 @@ async def analyze_ootd(image: UploadFile = File(...)):
             results.append(data)
             
             # 백엔드 전송
-            url = "http://localhost:8000/clothes"  # 벡엔드 URL로 변경
+            backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+            url = f"{backend_url}/clothes"  # 벡엔드 URL로 변경
             response = requests.post(url, files=files, data=data)
         return JSONResponse(content={"message": "분석 완료"}, status_code=200)
 
