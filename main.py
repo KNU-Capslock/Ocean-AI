@@ -33,7 +33,7 @@ async def analyze_ootd(image: UploadFile = File(...)):
             sys.stdout.flush()
             clothing_img = Image.open(clothing_img)
             clothing_img.load()
-            clothing_img = clothing_img.convert("RGB")
+
             result = run_classification(clothing_img)
 
             data = {
