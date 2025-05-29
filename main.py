@@ -1,10 +1,11 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 import requests
 from PIL import Image
 import io
 import sys
 import os
+import json
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-segmentation"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-classification"))
 
@@ -13,8 +14,8 @@ from run_classification import run_classification
 app = FastAPI()
 
 
-@app.post("/AI")
-async def analyze_ootd(image: UploadFile = File(...)):
+@app.post("/ai")
+async def analyze_ootd(image: UploadFile = File(...), user_id: int = Form(...)):
     try:
         contents = await image.read()
         img_bytes = io.BytesIO(contents)
@@ -37,6 +38,7 @@ async def analyze_ootd(image: UploadFile = File(...)):
             result = run_classification(clothing_img)
 
             data = {
+                "user_id" : user_id,
                 "type": result["type"],
                 "detail": result["detail"],
                 "print": result["print"],
@@ -50,7 +52,8 @@ async def analyze_ootd(image: UploadFile = File(...)):
             clothing_img_bytes.seek(0)
 
             files = {
-                "file": ("image.png", clothing_img_bytes, "image/png")
+                "file": ("image.png", clothing_img_bytes, "image/png"),
+                "data": (None, json.dumps(data), "application/json")
             }
 
             print(f"Classification result {idx+1}: {data}")
@@ -58,9 +61,13 @@ async def analyze_ootd(image: UploadFile = File(...)):
             results.append(data)
             
             # 백엔드 전송
-            url = "http://localhost:8000/clothes"  # 벡엔드 URL로 변경
-            response = requests.post(url, files=files, data=data)
+            url = "http://localhost:8080/clothes"  # 벡엔드 URL로 변경
+            response = requests.post(url, files=files)
         return JSONResponse(content={"message": "분석 완료"}, status_code=200)
 
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="localhost", port=8001)
