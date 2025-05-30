@@ -15,7 +15,7 @@ app = FastAPI()
 
 
 @app.post("/ai")
-async def analyze_ootd(image: UploadFile = File(...), user_id: int = Form(...)):
+async def analyze_ootd(image: UploadFile = File(...), user_id: int = Form(...), post_id: int = Form(...)):
     try:
         contents = await image.read()
         img_bytes = io.BytesIO(contents)
@@ -39,6 +39,7 @@ async def analyze_ootd(image: UploadFile = File(...), user_id: int = Form(...)):
 
             data = {
                 "user_id" : user_id,
+                "post_id" : post_id,
                 "type": result["type"],
                 "detail": result["detail"],
                 "print": result["print"],
@@ -61,7 +62,7 @@ async def analyze_ootd(image: UploadFile = File(...), user_id: int = Form(...)):
             results.append(data)
             
             # 백엔드 전송
-            backend_url = os.getenv("BACKEND_URL", "http://localhost:8000")
+            backend_url = os.getenv("BACKEND_URL", "http://localhost:8080")
             url = f"{backend_url}/clothes"  # 벡엔드 URL로 변경
             response = requests.post(url, files=files, data=data)
         return JSONResponse(content={"message": "분석 완료"}, status_code=200)
