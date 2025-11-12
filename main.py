@@ -1,74 +1,93 @@
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import JSONResponse
-import requests
-from PIL import Image
 import io
-import sys
 import os
 import json
+import sys
+import httpx
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.responses import JSONResponse
+from PIL import Image
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-segmentation"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-classification"))
 
 from run_segmentation import run_segmentation
 from run_classification import run_classification
+
 app = FastAPI()
 
-
 @app.post("/ai")
-async def analyze_ootd(image: UploadFile = File(...), user_id: int = Form(...), post_id: int = Form(...)):
+async def analyze_ootd(
+    image: UploadFile = File(...),
+    user_id: int = Form(...),
+    post_id: int = Form(...)
+):
     try:
-        contents = await image.read()
-        img_bytes = io.BytesIO(contents)
-        img = Image.open(img_bytes)
-        img.load() 
-
-        clothing_items = run_segmentation(img)
-
-        print(f"{len(clothing_items)} clothing items segmented")
+        print(f"user_id: {user_id}, post_id: {post_id}")
         sys.stdout.flush()
 
-        results = []
+        contents = await image.read()
+        img = Image.open(io.BytesIO(contents))
+        img.load()
 
-        for idx, clothing_img in enumerate(clothing_items):
-            print(f"Running classification for item {idx+1}")
+        # segmentation
+        try:
+            clothing_items = run_segmentation(img)
+            print(f"{len(clothing_items)} clothing items segmented")
+        except Exception as e:
+            print(f"Segmentation failed: {e}")
             sys.stdout.flush()
-            clothing_img = Image.open(clothing_img)
-            clothing_img.load()
+            return JSONResponse(content={"error": f"Segmentation failed: {e}"}, status_code=500)
 
-            result = run_classification(clothing_img)
+        backend_url = os.getenv("BACKEND_URL", "http://localhost:8080")
 
-            data = {
-                "user_id" : user_id,
-                "post_id" : post_id,
-                "type": result["type"],
-                "detail": result["detail"],
-                "print": result["print"],
-                "texture": result["texture"],
-                "style": result["style"]
-            }
+        async with httpx.AsyncClient(timeout=None) as client:
+            tasks = []
 
-            # multipart용 이미지 파일 구성
-            clothing_img_bytes = io.BytesIO()
-            clothing_img.save(clothing_img_bytes, format="PNG")
-            clothing_img_bytes.seek(0)
+            for idx, clothing_img in enumerate(clothing_items):
+                try:
+                    print(f"Running classification for item {idx+1}")
+                    sys.stdout.flush()
 
-            files = {
-                "file": ("image.png", clothing_img_bytes, "image/png"),
-                "data": (None, json.dumps(data), "application/json")
-            }
+                    result = run_classification(clothing_img)
 
-            print(f"Classification result {idx+1}: {data}")
-            sys.stdout.flush()
-            results.append(data)
-            
-            # 백엔드 전송
-            backend_url = os.getenv("BACKEND_URL", "http://localhost:8080")
-            url = f"{backend_url}/clothes"  # 벡엔드 URL로 변경
-            response = requests.post(url, files=files, data=data)
+                    data = {
+                        "user_id": user_id,
+                        "post_id": post_id,
+                        "type": result.get("type"),
+                        "detail": result.get("detail"),
+                        "print": result.get("print"),
+                        "texture": result.get("texture"),
+                        "style": result.get("style")
+                    }
+
+                    clothing_img_bytes = io.BytesIO()
+                    clothing_img.save(clothing_img_bytes, format="PNG")
+                    clothing_img_bytes.seek(0)
+
+                    files = {
+                        "file": ("image.png", clothing_img_bytes, "image/png"),
+                        "data": (None, json.dumps(data), "application/json")
+                    }
+
+                    url = f"{backend_url}/clothes"
+                    tasks.append(client.post(url, files=files))
+
+                except Exception as e:
+                    print(f"Classification failed for item {idx+1}: {e}")
+                    sys.stdout.flush()
+                    continue  # 한 아이템 실패해도 나머지는 계속
+
+            if tasks:
+                # 모든 요청을 비동기로 동시에 실행
+                await httpx.AsyncClient.gather(*tasks)
+
         return JSONResponse(content={"message": "분석 완료"}, status_code=200)
 
     except Exception as e:
+        print(f"Unexpected error: {e}")
+        sys.stdout.flush()
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
 
 if __name__ == "__main__":
     import uvicorn
