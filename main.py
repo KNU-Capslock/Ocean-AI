@@ -6,6 +6,7 @@ import httpx
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image
+import asyncio
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-segmentation"))
 sys.path.append(os.path.join(os.path.dirname(__file__), "ootd-classification"))
@@ -48,7 +49,10 @@ async def analyze_ootd(
                     print(f"Running classification for item {idx+1}")
                     sys.stdout.flush()
 
-                    result = run_classification(clothing_img)
+                    clothing_img.seek(0)
+                    pil_image = Image.open(clothing_img)
+
+                    result = run_classification(pil_image)
 
                     data = {
                         "user_id": user_id,
@@ -61,12 +65,12 @@ async def analyze_ootd(
                     }
 
                     clothing_img_bytes = io.BytesIO()
-                    clothing_img.save(clothing_img_bytes, format="PNG")
+                    pil_image.save(clothing_img_bytes, format="PNG")
                     clothing_img_bytes.seek(0)
 
                     files = {
                         "file": ("image.png", clothing_img_bytes, "image/png"),
-                        "data": (None, json.dumps(data), "application/json")
+                        "data": ("data.json", json.dumps(data), "application/json") 
                     }
 
                     url = f"{backend_url}/clothes"
@@ -75,11 +79,10 @@ async def analyze_ootd(
                 except Exception as e:
                     print(f"Classification failed for item {idx+1}: {e}")
                     sys.stdout.flush()
-                    continue  # 한 아이템 실패해도 나머지는 계속
+                    continue
 
             if tasks:
-                # 모든 요청을 비동기로 동시에 실행
-                await httpx.AsyncClient.gather(*tasks)
+                await asyncio.gather(*tasks)
 
         return JSONResponse(content={"message": "분석 완료"}, status_code=200)
 
