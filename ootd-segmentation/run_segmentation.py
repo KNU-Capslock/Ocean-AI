@@ -8,13 +8,28 @@ import io
 # 파이썬용 원본 모델 ID
 MODEL_ID = "mattmdjaga/segformer_b2_clothes"
 
-# 모델 로드 (앱처럼 강제 리사이징 하지 않음 -> 원본 비율 유지로 정확도 향상)
+# 모델 로드
 processor = SegformerImageProcessor.from_pretrained(MODEL_ID)
 model = AutoModelForSemanticSegmentation.from_pretrained(MODEL_ID)
 model.eval()
 
-# 신발 병합 매핑 (오른발(10) -> 왼발(9)로 통합)
-# 내부적으로 마스크를 합칠 때만 사용합니다.
+# 1. 남길 '패션 아이템' ID 정의 (신체 부위 제외)
+# 제외된 것: 0(배경), 2(머리카락), 11(얼굴), 12~15(팔/다리)
+TARGET_CLOTH_IDS = {
+    1,  # Hat (모자)
+    3,  # Sunglasses (선글라스)
+    4,  # Upper-clothes (상의)
+    5,  # Skirt (치마)
+    6,  # Pants (바지)
+    7,  # Dress (원피스)
+    8,  # Belt (벨트)
+    9,  # Left-shoe (신발 - 병합됨)
+    10, # Right-shoe (신발 - 병합 로직용)
+    16, # Bag (가방)
+    17  # Scarf (스카프)
+}
+
+# 2. 신발 병합 매핑 (Right-shoe -> Left-shoe로 통합)
 MERGE_MAPPING = {
     10: 9 
 }
@@ -22,7 +37,7 @@ MERGE_MAPPING = {
 def run_segmentation(image: Image.Image):
     image_rgb = image.convert("RGB")
     
-    # 전처리
+    # 전처리 (원본 비율 유지)
     inputs = processor(images=image_rgb, return_tensors="pt")
 
     with torch.no_grad():
@@ -30,38 +45,42 @@ def run_segmentation(image: Image.Image):
 
     logits = outputs.logits
     
-    # 원본 크기로 마스크 복원
+    # 마스크 업샘플링
     upsampled_logits = F.interpolate(
         logits, size=image.size[::-1], mode="bilinear", align_corners=False
     )
     pred_seg = upsampled_logits.argmax(dim=1)[0].numpy()
 
-    segmented_images = [] # 반환값: 잘린 이미지(bytes)들의 리스트
+    segmented_images = [] 
 
-    # 리드미 기준 1~17번 클래스 전체 탐색
-    # (기존엔 4~7번만 있어서 모자, 가방, 신발이 누락되었음)
+    # 전체 클래스 탐색
     for cls_id in range(1, 18):
-        # 병합될 대상(오른발 10)은 건너뜀
+        
+        # [핵심 수정] 우리가 원하는 '옷/악세서리'가 아니면 즉시 건너뜀 (얼굴, 팔, 다리 등 제거)
+        if cls_id not in TARGET_CLOTH_IDS:
+            continue
+
+        # 병합될 대상(오른발 10)은 건너뜀 (9번 처리할 때 합쳐짐)
         if cls_id in MERGE_MAPPING:
             continue
             
-        # 신발(9)인 경우: 9번(왼발) + 10번(오른발) 마스크 합치기
+        # 신발(9)인 경우: 9번 + 10번 합치기
         if cls_id == 9: 
             mask = np.logical_or(pred_seg == 9, pred_seg == 10).astype(np.uint8) * 255
         # 그 외: 해당 클래스 마스크만 사용
         else:
             mask = (pred_seg == cls_id).astype(np.uint8) * 255
 
-        # 해당 객체가 없으면 패스
+        # 해당 아이템이 사진에 없으면 패스
         if np.sum(mask) == 0:
             continue
 
-        # --- 이미지 저장 및 크롭 로직 ---
+        # --- 이미지 저장 및 크롭 ---
         image_rgba = image.convert("RGBA")
         alpha_mask = Image.fromarray(mask).convert("L")
         image_rgba.putalpha(alpha_mask)
 
-        # 의류 영역만큼만 잘라내기 (BBox)
+        # BBox로 타이트하게 크롭
         bbox = alpha_mask.getbbox()
         if bbox:
             image_rgba = image_rgba.crop(bbox)
@@ -70,7 +89,7 @@ def run_segmentation(image: Image.Image):
         image_rgba.save(buffer, format="PNG")
         buffer.seek(0)
         
-        # 라벨 정보 없이 이미지만 리스트에 추가 (main.py와 호환)
+        # 순수 의류 이미지 버퍼만 리스트에 추가
         segmented_images.append(buffer)
 
     return segmented_images
